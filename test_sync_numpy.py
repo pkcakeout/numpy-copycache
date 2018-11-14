@@ -23,6 +23,7 @@ def test_equal():
         assert mm.ndim == m.ndim
         assert mm.shape == m.shape
         assert mm.dtype == m.dtype
+        assert len(mm) == len(m)
         assert (m == mm[:]).all()
         assert (m[1] == mm[1]).all()
 

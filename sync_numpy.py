@@ -1,9 +1,13 @@
 import tempfile
+import threading
 from pathlib import Path
 
 import atexit
+from queue import Queue
+
 import numpy as np
 
+from sync_thread import SyncThread
 
 SHADOW_LIST = []
 
@@ -15,7 +19,7 @@ def close_shadows():
 atexit.register(close_shadows)
 
 
-class ShadowedNumpyMemmap:
+class ShadowedNumpyMemmap(SyncThread):
     """
     This class clones a subset of numpy functions in order to create a
     memory-mapped copy of another numpy array. The class only supports
@@ -37,7 +41,10 @@ class ShadowedNumpyMemmap:
             data: np.ndarray,
             cache_location=None,
             sync_chunk_size: int=64*1024):
+        super(ShadowedNumpyMemmap, self).__init__()
+        
         self.__src_data = data
+        self.__sync_chunk_size = sync_chunk_size
 
         filemode = "r+"
         if cache_location is None:
@@ -53,9 +60,14 @@ class ShadowedNumpyMemmap:
         )
         self.__loaded_indexes = set()
 
-    @property
-    def copy_ratio(self):
-        return len(self.__loaded_indexes) / self.shape[0]
+    def _sync_thread_create_item_generator(self):
+        return range(len(self))
+
+    def _sync_thread_item_count(self):
+        return len(self)
+
+    def __len__(self):
+        return self.__memmap.shape[0]
 
     @property
     def shape(self):
@@ -90,6 +102,7 @@ class ShadowedNumpyMemmap:
         note that this will make the object unusable. All data access functions
         will raise an IOError after executing this function.
         """
+        super(ShadowedNumpyMemmap, self).close()
         if self.__memmap is not None:
             del self.__memmap
             self.__memmap = None
