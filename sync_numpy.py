@@ -1,3 +1,4 @@
+import math
 import tempfile
 
 import atexit
@@ -38,15 +39,18 @@ class ShadowedNumpyMemmap(SyncThread):
     def __init__(
             self,
             data: np.ndarray,
-            cache_location=None):
+            cache_location=None,
+            sync_block_size: int=256*1024**2):
         super(ShadowedNumpyMemmap, self).__init__()
         
         self.__src_data = data
+        self.__sync_block_size = sync_block_size
 
-        filemode = "r+"
         if cache_location is None:
             filemode = "w+"
             cache_location = tempfile.NamedTemporaryFile()
+        else:
+            filemode = "r+" if Path(cache_location).exists() else "w+"
 
         self.__dtype = data.dtype
         self.__memmap = np.memmap(
@@ -58,7 +62,12 @@ class ShadowedNumpyMemmap(SyncThread):
         self.__loaded_indexes = set()
 
     def _sync_thread_create_item_generator(self) -> Generator:
-        return iter(range(len(self)))
+        item_size = self.__memmap[0].nbytes
+        step = math.ceil(max(1, self.__sync_block_size / item_size))
+        i = 0
+        while i < len(self):
+            yield slice(i, i + step)
+            i += step
 
     def _sync_thread_item_count(self) -> int:
         return len(self)
