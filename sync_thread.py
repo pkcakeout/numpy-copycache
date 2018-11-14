@@ -128,7 +128,7 @@ class SyncThread:
                     self.__response_queue.put("done")
                 elif item == 'next':
                     try:
-                        do_sync(item_generator.next())
+                        do_sync(next(item_generator))
                     except StopIteration:
                         if not self.fully_copied:
                             print(

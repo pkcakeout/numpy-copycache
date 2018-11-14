@@ -1,6 +1,7 @@
 import tempfile
 
 import atexit
+from pathlib import Path
 from typing import Tuple, Generator
 
 import numpy as np
@@ -59,7 +60,7 @@ class ShadowedNumpyMemmap(SyncThread):
         self.__loaded_indexes = set()
 
     def _sync_thread_create_item_generator(self) -> Generator:
-        return range(len(self))
+        return iter(range(len(self)))
 
     def _sync_thread_item_count(self) -> int:
         return len(self)
@@ -68,11 +69,13 @@ class ShadowedNumpyMemmap(SyncThread):
         self.__memmap[item] = self.__src_data[item]
         if isinstance(item, int):
             self.__loaded_indexes.add(item)
+            return 1
         elif isinstance(item, slice):
             start, stop, step = self.__resolve_slice(item)
-            items = range(start, stop, step)
-            self.__loaded_indexes.union(items)
-            return len(items)
+            new_items = set(range(start, stop, step))
+            new_items.difference_update(self.__loaded_indexes)
+            self.__loaded_indexes.update(new_items)
+            return len(new_items)
         else:
             raise ValueError("Cannot resolve index")
 
@@ -104,6 +107,10 @@ class ShadowedNumpyMemmap(SyncThread):
 
     def __len__(self):
         return self.__memmap.shape[0]
+
+    @property
+    def filename(self):
+        return Path(self.__memmap.filename)
 
     @property
     def shape(self):

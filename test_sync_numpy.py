@@ -1,16 +1,18 @@
+import time
 from pathlib import Path
 
 import numpy as np
 import contextlib
 
+
 from sync_numpy import ShadowedNumpyMemmap
 
 
-def test_equal():
+def test_file_removal():
     m = np.eye(8, dtype='float32')
     with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        mm[:,:]
         filename = Path(mm.filename)
-        assert filename.exists()
     assert not filename.exists()
 
 
@@ -29,3 +31,27 @@ def test_equal():
 
         assert mm.copy_ratio == 1
         assert mm.fully_copied
+
+
+def test_overlapping_chunks():
+    m = np.eye(8, dtype='float32')
+    with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        assert mm.copy_ratio == 0
+        mm[1:]
+        assert mm.copy_ratio > 0
+        mm[:5]
+        assert mm.copy_ratio == 1
+
+
+def test_background_syncing():
+    m = np.eye(8, dtype='float32')
+    with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        mm.background_syncing = True
+
+        starttime = time.time()
+        while time.time() - starttime < 10:
+            if mm.fully_copied:
+                break
+            time.sleep(.1)
+        assert mm.fully_copied
+        assert mm.copy_ratio == 1
