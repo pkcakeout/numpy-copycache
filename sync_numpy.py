@@ -38,12 +38,10 @@ class ShadowedNumpyMemmap(SyncThread):
     def __init__(
             self,
             data: np.ndarray,
-            cache_location=None,
-            sync_chunk_size: int=64*1024):
+            cache_location=None):
         super(ShadowedNumpyMemmap, self).__init__()
         
         self.__src_data = data
-        self.__sync_chunk_size = sync_chunk_size
 
         filemode = "r+"
         if cache_location is None:
