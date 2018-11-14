@@ -1,9 +1,7 @@
 import tempfile
-import threading
-from pathlib import Path
 
 import atexit
-from queue import Queue
+from typing import Tuple, Generator
 
 import numpy as np
 
@@ -60,11 +58,49 @@ class ShadowedNumpyMemmap(SyncThread):
         )
         self.__loaded_indexes = set()
 
-    def _sync_thread_create_item_generator(self):
+    def _sync_thread_create_item_generator(self) -> Generator:
         return range(len(self))
 
-    def _sync_thread_item_count(self):
+    def _sync_thread_item_count(self) -> int:
         return len(self)
+
+    def _sync_item(self, item) -> int:
+        self.__memmap[item] = self.__src_data[item]
+        if isinstance(item, int):
+            self.__loaded_indexes.add(item)
+        elif isinstance(item, slice):
+            start, stop, step = self.__resolve_slice(item)
+            items = range(start, stop, step)
+            self.__loaded_indexes.union(items)
+            return len(items)
+        else:
+            raise ValueError("Cannot resolve index")
+
+    def _sync_is_item_synced(self, item) -> bool:
+        if isinstance(item, int):
+            return item in self.__loaded_indexes
+        elif isinstance(item, slice):
+            start, stop, step = self.__resolve_slice(item)
+            if stop - start <= 0:
+                return True
+            return all(
+                i in self.__loaded_indexes
+                for i in range(start, stop, step))
+        else:
+            raise ValueError("Cannot resolve index")
+
+    def __resolve_slice(self, s: slice) -> Tuple[int, int, int]:
+        step = s.step if s.step else 1
+        start = s.start if s.start else 0
+        if start < 0:
+            start = max(0, len(self) + start)
+        stop = s.stop if s.stop is not None else len(self)
+        if stop < 0:
+            stop = max(0, len(self) + stop)
+        if step < 0:
+            step = abs(step)
+            start, stop = stop, start
+        return start, stop, step
 
     def __len__(self):
         return self.__memmap.shape[0]
@@ -81,14 +117,18 @@ class ShadowedNumpyMemmap(SyncThread):
     def dtype(self):
         return self.__dtype
 
+    def __defer_getitem(self, item):
+        if self.fully_copied:
+            return self.__memmap[item]
+        self._sync_bypass(item)
+        return self.__memmap[item]
+
     def __getitem__(self, item):
-        if isinstance(item, int):
-            return self.__src_data[item]
-        elif isinstance(item, slice):
-            return self.__src_data[item]
+        if isinstance(item, (int, slice)):
+            return self.__defer_getitem(item)
         else:
             item = tuple(item)
-            result = self[item[0]]
+            result = self.__defer_getitem(item[0])
             if len(item) == 1:
                 return result
             elif len(item) == 2:

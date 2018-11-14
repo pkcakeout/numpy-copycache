@@ -1,5 +1,9 @@
 import queue
 import threading
+from typing import Generator
+
+
+class SyncingFailedException(Exception): pass
 
 
 class SyncThread:
@@ -16,25 +20,44 @@ class SyncThread:
         self.__sync_thread.daemon = True
         self.__sync_thread.start()
 
-    def _sync_thread_item_count(self):
+    def _sync_thread_item_count(self) -> int:
         raise NotImplementedError()
 
-    def _sync_thread_create_item_generator(self):
+    def _sync_thread_create_item_generator(self) -> Generator:
         raise NotImplementedError()
 
-    def _sync_is_item_synced(self, item):
+    def _sync_is_item_synced(self, item) -> bool:
         raise NotImplementedError()
 
-    def _sync_item(self, item):
+    def _sync_item(self, item) -> int:
         raise NotImplementedError()
 
     def _sync_bypass(self, item):
         with self.__request_lock:
+            if self.fully_copied:
+                return
+            if self._sync_is_item_synced(item):
+                return
+
             if self.__bypass is not None:
                 raise RuntimeError("self.__bypass must be None")
             self.__bypass = item
             self.__queue.put('bypass')
-            self.__response_queue.get(block=True)
+
+            while True:
+                if not self.__sync_thread.isAlive():
+                    if self.fully_copied:
+                        self.__bypass = None
+                        break  # This can happen because of a race condition
+                    else:
+                        raise SyncingFailedException(
+                            "Item not synced but: SyncThread died")
+                try:
+                    self.__response_queue.get(block=True, timeout=.1)
+                except queue.Empty:
+                    pass
+                else:
+                    break
 
     @property
     def background_syncing(self):
@@ -93,9 +116,7 @@ class SyncThread:
             try:
                 def do_sync(sync_item):
                     if not self._sync_is_item_synced(sync_item):
-                        self._sync_item(sync_item)
-                        self.__synced_items += 1
-
+                        self.__synced_items += self._sync_item(sync_item)
                 if item is None:
                     continue
                 elif item == 'stop':
@@ -103,7 +124,8 @@ class SyncThread:
                 elif item == 'bypass':
                     bypass = self.__bypass
                     self.__bypass = None
-                    self.__response_queue.put(do_sync(bypass))
+                    do_sync(bypass)
+                    self.__response_queue.put("done")
                 elif item == 'next':
                     try:
                         do_sync(item_generator.next())

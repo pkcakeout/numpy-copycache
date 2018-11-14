@@ -28,3 +28,4 @@ def test_equal():
         assert (m[1] == mm[1]).all()
 
         assert mm.copy_ratio == 1
+        assert mm.fully_copied
