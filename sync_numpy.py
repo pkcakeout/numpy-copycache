@@ -147,6 +147,15 @@ class ShadowedNumpyMemmap(SyncThread):
         return self.__memmap[item]
 
     def __getitem__(self, item):
+        if isinstance(item, (list, np.ndarray)):
+            if isinstance(item[0], bool):
+                if all(isinstance(item[0], bool) for i in item[:1]):
+                    # We have a bool-mask at our hands, convert it to integer
+                    # list
+                    item = [i for i, b in enumerate(item) if b]
+            return np.array([self[i] for i in item], dtype=np.dtype)
+        if isinstance(item, np.integer):
+            item = int(item)
         if isinstance(item, (int, slice)):
             return self.__defer_getitem(item)
         else:
