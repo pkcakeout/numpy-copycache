@@ -71,4 +71,6 @@ def test_numpy_list_accessors():
         i = np.array([1, 4, 5, 6, 1, -99, -1, -4, -4])
         assert (m[i] == mm[i]).all()
 
-
+    with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        i = np.array([i in (1, 5, 99) for i in range(100)], dtype=np.bool8)
+        assert (m[i] == mm[i]).all()
