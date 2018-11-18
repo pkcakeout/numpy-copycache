@@ -75,12 +75,13 @@ class ShadowedNumpyMemmap(SyncThread):
     def _sync_item(self, item) -> int:
         self.__memmap[item] = self.__src_data[item]
         if isinstance(item, int):
+            if item in self.__loaded_indexes:
+                return 0
             self.__loaded_indexes.add(item)
             return 1
         elif isinstance(item, slice):
             start, stop, step = self.__resolve_slice(item)
             new_items = set(range(start, stop, step))
-            print(new_items)
             new_items.difference_update(self.__loaded_indexes)
             self.__loaded_indexes.update(new_items)
             return len(new_items)
@@ -141,9 +142,8 @@ class ShadowedNumpyMemmap(SyncThread):
         return self.__dtype
 
     def __defer_getitem(self, item):
-        if self.fully_copied:
-            return self.__memmap[item]
-        self._sync_bypass(item)
+        if not (self.fully_copied or self._sync_is_item_synced(item)):
+            self._sync_bypass(item)
         return self.__memmap[item]
 
     def __getitem__(self, item):
