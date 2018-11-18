@@ -40,7 +40,7 @@ class ShadowedNumpyMemmap(SyncThread):
             self,
             data: np.ndarray,
             cache_location=None,
-            sync_block_size: int=256*1024**2):
+            sync_block_size: int=256*1024):
         super(ShadowedNumpyMemmap, self).__init__()
         
         self.__src_data = data
@@ -80,6 +80,7 @@ class ShadowedNumpyMemmap(SyncThread):
         elif isinstance(item, slice):
             start, stop, step = self.__resolve_slice(item)
             new_items = set(range(start, stop, step))
+            print(new_items)
             new_items.difference_update(self.__loaded_indexes)
             self.__loaded_indexes.update(new_items)
             return len(new_items)
@@ -104,9 +105,17 @@ class ShadowedNumpyMemmap(SyncThread):
         start = s.start if s.start else 0
         if start < 0:
             start = max(0, len(self) + start)
+        if start < 0:
+            start = 0
+        if start > len(self):
+            start = len(self)
         stop = s.stop if s.stop is not None else len(self)
         if stop < 0:
             stop = max(0, len(self) + stop)
+        if stop < 0:
+            stop = 0
+        if stop > len(self):
+            stop = len(self)
         if step < 0:
             step = abs(step)
             start, stop = stop, start

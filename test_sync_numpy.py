@@ -55,3 +55,20 @@ def test_background_syncing():
             time.sleep(.1)
         assert mm.fully_copied
         assert mm.copy_ratio == 1
+
+
+def test_numpy_list_accessors():
+    m = np.array(range(100), dtype='float32')
+    with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        i = [i in (1, 5, 99) for i in range(100)]
+        assert (m[i] == mm[i]).all()
+
+    with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        i = [1, 4, 5, 6, 1]
+        assert (m[i] == mm[i]).all()
+
+    with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
+        i = np.array([1, 4, 5, 6, 1])
+        assert (m[i] == mm[i]).all()
+
+
