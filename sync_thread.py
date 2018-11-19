@@ -105,16 +105,13 @@ class SyncThread:
 
     def __sync_thread_main(self):
         item_generator = None
+        remaining_wait = None
 
         while (item_generator is None) or (not self.fully_copied):
             try:
-                if self.__bandwidth_share == 0:
-                    timeout = None
-                elif self.__item_sync_time is None:
-                    timeout = 0
-                else:
-                    timeout = self.__item_sync_time / self.__bandwidth_share \
-                              - self.__item_sync_time
+                timeout = remaining_wait
+                if timeout is not None:
+                    timeout = max(0, timeout)
                 item = self.__queue.get(
                     block=self.__bandwidth_share != 1, timeout=timeout)
             except queue.Empty:
@@ -135,7 +132,8 @@ class SyncThread:
                 def do_sync(sync_item):
                     if not self._sync_is_item_synced(sync_item):
                         start_time = time.time()
-                        self.__synced_items += self._sync_item(sync_item)
+                        synced_item_count = self._sync_item(sync_item)
+                        self.__synced_items += synced_item_count
                         end_time = time.time()
                         if end_time == start_time:
                             # Assume we are dealing with the 16ms limitation
@@ -143,6 +141,8 @@ class SyncThread:
                             delta_t = 0.016
                         else:
                             delta_t = end_time - start_time
+
+                        delta_t /= synced_item_count
                         if self.__item_sync_time is None:
                             self.__item_sync_time = delta_t
                         else:
@@ -150,18 +150,34 @@ class SyncThread:
                             p = 0.95
                             self.__item_sync_time = \
                                 p * self.__item_sync_time + (1 - p) * delta_t
+                        return synced_item_count
+                    return None
+
                 if item is None:
+                    if remaining_wait is None:
+                        if self.__bandwidth_share > 0:
+                            remaining_wait = 0
                     continue
                 elif item == 'stop':
                     break
                 elif item == 'bypass':
                     bypass = self.__bypass
                     self.__bypass = None
-                    do_sync(bypass)
+                    count = do_sync(bypass)
+                    if (remaining_wait is not None) and self.__item_sync_time:
+                        remaining_wait -= count * self.__item_sync_time
                     self.__response_queue.put("done")
                 elif item == 'next':
                     try:
-                        do_sync(next(item_generator))
+                        count = do_sync(next(item_generator))
+                        if self.__item_sync_time:
+                            remaining_wait = count * self.__item_sync_time
+                            if self.__bandwidth_share == 0:
+                                remaining_wait = None
+                            else:
+                                remaining_wait = \
+                                    remaining_wait / self.__bandwidth_share \
+                                    - remaining_wait
                     except StopIteration:
                         if not self.fully_copied:
                             print(
