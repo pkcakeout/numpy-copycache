@@ -169,13 +169,17 @@ class SyncThread:
                     bypass = self.__bypass
                     self.__bypass = None
                     count = do_sync(bypass)
+                    if count is None:
+                        count = 0
                     if (remaining_wait is not None) and self.__item_sync_time:
                         remaining_wait -= count * self.__item_sync_time
                     self.__response_queue.put("done")
                 elif item == 'next':
                     try:
                         count = do_sync(next(item_generator))
-                        if self.__item_sync_time:
+                        if count is None:
+                            pass
+                        elif self.__item_sync_time:
                             remaining_wait = count * self.__item_sync_time
                             if self.__bandwidth_share == 0:
                                 remaining_wait = None

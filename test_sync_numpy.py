@@ -64,6 +64,30 @@ def test_background_syncing():
         print("mm.sync_item_duration =", mm.sync_item_duration)
 
 
+def test_background_sync_item_access():
+    m = np.eye(8, dtype='float32')
+    with contextlib.closing(ShadowedNumpyMemmap(m, sync_block_size=1)) as mm:
+        assert mm.copy_ratio == 0
+        assert mm.sync_item_duration is None
+
+        mm[0]
+        assert mm.copy_ratio > 0
+        assert mm.sync_item_duration is not None
+
+        mm.bandwidth_share = 0.1
+        starttime = time.time()
+        while time.time() - starttime < 2:
+            if mm.fully_copied:
+                break
+            time.sleep(.1)
+
+        assert mm.copy_ratio == 1
+        assert mm.fully_copied
+        assert mm.sync_item_duration > 0
+        mm[0]
+
+        print("mm.sync_item_duration =", mm.sync_item_duration)
+
 def test_numpy_list_accessors():
     m = np.array(range(100), dtype='float32')
     with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
