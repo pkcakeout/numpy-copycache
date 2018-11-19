@@ -46,15 +46,22 @@ def test_overlapping_chunks():
 def test_background_syncing():
     m = np.eye(8, dtype='float32')
     with contextlib.closing(ShadowedNumpyMemmap(m)) as mm:
-        mm.background_syncing = True
+        time.sleep(0.5)
+        assert mm.copy_ratio == 0
+        assert mm.sync_item_duration is None
+
+        mm.bandwidth_share = 0.5
 
         starttime = time.time()
-        while time.time() - starttime < 10:
+        while time.time() - starttime < 2:
             if mm.fully_copied:
                 break
             time.sleep(.1)
-        assert mm.fully_copied
         assert mm.copy_ratio == 1
+        assert mm.fully_copied
+        assert mm.sync_item_duration > 0
+
+        print("mm.sync_item_duration =", mm.sync_item_duration)
 
 
 def test_numpy_list_accessors():

@@ -1,5 +1,6 @@
 import queue
 import threading
+import time
 from typing import Generator
 
 
@@ -8,10 +9,12 @@ class SyncingFailedException(Exception): pass
 
 class SyncThread:
     def __init__(self):
-        self.__background_syncing = False
         self.__synced_items = 0
 
         self.__bypass = None
+
+        self.__bandwidth_share = 0
+        self.__item_sync_time = None
 
         self.__request_lock = threading.RLock()
         self.__response_queue = queue.Queue()
@@ -60,13 +63,21 @@ class SyncThread:
                     break
 
     @property
-    def background_syncing(self):
-        return self.__background_syncing
+    def bandwidth_share(self):
+        return self.__bandwidth_share
 
-    @background_syncing.setter
-    def background_syncing(self, value):
-        self.__background_syncing = bool(value)
+    @bandwidth_share.setter
+    def bandwidth_share(self, value):
+        self.__bandwidth_share = min(1., max(0., float(value)))
         self.__queue.put(None) # knock loose
+
+    @property
+    def sync_item_duration(self):
+        """
+        Gives the time it takes to synchornize a single item from the
+        synchronization queue. None if it could not yet be measured.
+        """
+        return self.__item_sync_time
 
     @property
     def copy_ratio(self):
@@ -89,8 +100,7 @@ class SyncThread:
         all pending actions.
         """
         if self.__sync_thread.isAlive():
-            if not self.__background_syncing:
-                self.__queue.put('stop')
+            self.__queue.put('stop')
             self.__sync_thread.join()
 
     def __sync_thread_main(self):
@@ -98,9 +108,17 @@ class SyncThread:
 
         while (item_generator is None) or (not self.fully_copied):
             try:
-                item = self.__queue.get(block=not self.__background_syncing)
+                if self.__bandwidth_share == 0:
+                    timeout = None
+                elif self.__item_sync_time is None:
+                    timeout = 0
+                else:
+                    timeout = self.__item_sync_time / self.__bandwidth_share \
+                              - self.__item_sync_time
+                item = self.__queue.get(
+                    block=self.__bandwidth_share != 1, timeout=timeout)
             except queue.Empty:
-                if self.__background_syncing:
+                if self.__bandwidth_share > 0:
                     item = 'next'
                 else:
                     item = None
@@ -116,7 +134,22 @@ class SyncThread:
             try:
                 def do_sync(sync_item):
                     if not self._sync_is_item_synced(sync_item):
+                        start_time = time.time()
                         self.__synced_items += self._sync_item(sync_item)
+                        end_time = time.time()
+                        if end_time == start_time:
+                            # Assume we are dealing with the 16ms limitation
+                            # on windows - default to 16ms.
+                            delta_t = 0.016
+                        else:
+                            delta_t = end_time - start_time
+                        if self.__item_sync_time is None:
+                            self.__item_sync_time = delta_t
+                        else:
+                            # Keep a running average
+                            p = 0.95
+                            self.__item_sync_time = \
+                                p * self.__item_sync_time + (1 - p) * delta_t
                 if item is None:
                     continue
                 elif item == 'stop':
