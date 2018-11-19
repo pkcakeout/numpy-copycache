@@ -112,16 +112,21 @@ class SyncThread:
                 timeout = remaining_wait
                 if timeout is not None:
                     timeout = max(0, timeout)
+                start_time = time.time()
                 item = self.__queue.get(
                     block=self.__bandwidth_share != 1, timeout=timeout)
             except queue.Empty:
+                remaining_wait = 0
                 if self.__bandwidth_share > 0:
                     item = 'next'
                 else:
                     item = None
                 task_done = lambda : None
             else:
+                end_time = time.time()
                 task_done = self.__queue.task_done
+                if remaining_wait is not None:
+                    remaining_wait -= end_time - start_time
 
             if item_generator is None:
                 item_generator = self._sync_thread_create_item_generator()
